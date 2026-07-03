@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# VS Code
+.vscode/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Dataset
+data/
+*.bin
+*.pcd
+*.ply
+*.npz
+*.npy
+
+# nuScenes dataset / large files
+nuscenes/
+samples/
+sweeps/
+maps/
+v1.0-mini/
+
+# Outputs
+outputs/
+
+# Logs / cache
+*.log
+.cache/
+.ipynb_checkpoints/
+
+# Model / checkpoints
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.weights
+
+# Temporary files
+tmp/
+temp/
+
+tools/
