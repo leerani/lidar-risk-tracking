@@ -597,57 +597,28 @@ outputs/logs/stable_tracking_summary.json
 
 The raw LiDAR point cloud was visualized using Open3D to confirm sensor data loading.
 
----
-
 ## 14.2 ROI and Ground Removal
 
-ROI filtering reduced the original point cloud to the front region.
-
-Ground removal separated road surface points from non-ground object candidate points.
-
-![Ground Removal Result](assets/ground_removal_result.png)
-
----
+ROI filtering reduced the original point cloud to the front region, and ground removal separated road surface points from non-ground object candidate points.
 
 ## 14.3 DBSCAN Clustering and 3D Bounding Boxes
 
-DBSCAN clustering generated object candidate clusters from non-ground points.
-
-Each cluster was represented using:
-
-* center point
-* 3D bounding box
-* point count
-* size
-* distance from LiDAR
-
-![DBSCAN Bounding Box Result](assets/dbscan_bbox_result.png)
-
----
+DBSCAN clustering generated object candidate clusters from non-ground points.  
+Each cluster was represented using its center point, 3D bounding box, point count, size, and distance from LiDAR.
 
 ## 14.4 Distance Change of Confirmed Tracks
 
 ![Stable Tracking Distance Change](assets/stable_tracking_distance_change_clean.png)
 
-Track 31 and Track 32 were confirmed after being matched across multiple frames.
-
+Track 31 and Track 32 were confirmed after being matched across multiple frames.  
 Both tracks showed decreasing smoothed distance, indicating approaching object candidates.
-
----
 
 ## 14.5 BEV Tracking Visualization
 
-![BEV Tracking](assets/bev_tracking_frames_09_11.png)
+![BEV Tracking](assets/bev_tracking_stable_tracks_31_32.png)
 
-Bird’s-eye view visualization was used to show:
-
-* object candidate positions
-* track IDs
-* lateral position
-* forward distance
-* risk-relevant motion
-
----
+Track 31 and Track 32 were visualized in bird’s-eye view to show the spatial trajectory of stable approaching object candidates.  
+`T` indicates a tentative track, while `C` indicates a confirmed track after being matched across multiple frames.
 
 # 15. Key Insights
 
@@ -716,46 +687,7 @@ Current limitations include:
 
 ---
 
-# 18. Project Structure
-
-```text
-lidar-risk-tracking/
-├── configs/
-├── data/
-│   └── nuscenes -> /media/rani/새 볼륨/nuscenes
-├── outputs/
-│   ├── images/
-│   │   ├── stable_tracking_distance_change_clean.png
-│   │   ├── stable_tracking_distance_change.png
-│   │   └── bev_tracking_frames_09_11.png
-│   └── logs/
-│       ├── tracking_results.csv
-│       ├── tracking_results.json
-│       ├── tracking_results_stable.csv
-│       ├── tracking_results_stable.json
-│       ├── stable_track_summary.csv
-│       ├── stable_frame_summary.csv
-│       └── stable_tracking_summary.json
-├── src/
-│   ├── 01_load_lidar.py
-│   ├── 02_roi_filter.py
-│   ├── 03_ground_removal.py
-│   ├── 04_dbscan_clustering.py
-│   ├── 05_find_good_frames.py
-│   ├── 06_tracking.py
-│   ├── 07_plot_tracking_distance.py
-│   ├── 08_tracking_summary.py
-│   ├── 09_plot_bev_tracking.py
-│   ├── 10_tracking_stable.py
-│   ├── 11_stable_tracking_summary.py
-│   ├── 12_plot_stable_tracking_distance.py
-│   └── 13_plot_stable_tracking_distance_clean.py
-├── README.md
-└── requirements.txt
-```
-
-
-# 20. Future Work
+# 19. Future Work
 
 Potential future improvements include:
 
@@ -769,7 +701,7 @@ Potential future improvements include:
 
 ---
 
-# 21. Conclusion
+# 20. Conclusion
 
 This project implemented a LiDAR point cloud-based object candidate tracking and proximity risk assessment pipeline.
 
