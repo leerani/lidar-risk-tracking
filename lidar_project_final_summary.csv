@@ -1,0 +1,14 @@
+﻿Category,Metric,Value,Unit/Note
+Multisensor,Camera-only Coverage Recall,0.432,316/732 CAM_FRONT-visible GT
+Multisensor,LiDAR-only Coverage Recall,0.266,195/732 CAM_FRONT-visible GT
+Multisensor,Fusion Union Coverage Recall,0.515,377/732 CAM_FRONT-visible GT
+Multisensor,Fusion Gain vs Camera,+0.083,custom coverage diagnostic
+Multisensor,Fusion Gain vs LiDAR,+0.249,custom coverage diagnostic
+Edge,PyTorch GPU Mean Latency,12.333,"ms, BaseBEVBackbone only"
+Edge,PyTorch GPU FPS,81.08,"FPS, BaseBEVBackbone only"
+Edge,PyTorch CPU Mean Latency,352.772,"ms, BaseBEVBackbone only"
+Edge,ONNX Runtime CPU Mean Latency,162.872,"ms, BaseBEVBackbone only"
+Edge,ONNX CPU Speedup,2.17,x vs PyTorch CPU
+Edge,ONNX Relative L2 Error,0.00173204,feature-level validation
+Edge,ONNX 99th Percentile Abs Diff,0.00143294,feature-level validation
+Edge,ONNX 99.9th Percentile Abs Diff,0.00395483,feature-level validation

@@ -1,794 +1,786 @@
-# LiDAR Point Cloud Object Tracking and Proximity Risk Assessment Pipeline
+# LiDAR 3D Perception, Tracking, Risk Assessment, and Camera–LiDAR Fusion
 
 ## 1. Project Overview
 
-This project implements a LiDAR point cloud-based object candidate tracking and proximity risk assessment pipeline using the nuScenes mini dataset.
+This project started as a classical LiDAR point-cloud pipeline based on ROI filtering, ground removal, DBSCAN clustering, and frame-to-frame tracking. The original version focused on converting raw LiDAR data into structured proximity-risk decisions. It has since been extended into a broader **3D perception and risk-assessment pipeline** with semantic 3D detection, temporal tracking, dynamic risk estimation, camera–LiDAR fusion, and deployment-oriented runtime optimization.
 
-The project focuses on converting raw LiDAR sensor data into a structured decision output through a complete perception pipeline.
+The final project covers:
 
-Instead of directly training a 3D object detection model, this project explores:
+- PointPillars-based 3D object detection
+- LiDAR distance / point-density analysis
+- Multi-sweep and pillar-resolution ablation
+- Hungarian Matching + Kalman Filter tracking
+- TTC / DCPA-based dynamic risk assessment
+- Camera 2D detection and Camera–LiDAR late fusion
+- GT-based multisensor coverage evaluation
+- ONNX Runtime deployment optimization
 
-* LiDAR point cloud loading and visualization
-* front region of interest filtering
-* ground point removal
-* DBSCAN-based object candidate clustering
-* 3D bounding box generation
-* frame-to-frame object candidate tracking
-* tracking stabilization using confirmed track logic
-* smoothed distance-based risk assessment
-* CSV / JSON output generation
-
-The primary goal was not only to visualize LiDAR point clouds, but also to analyze how point cloud preprocessing, clustering, and tracking stability affect proximity risk decisions.
+The goal is not simply to apply a 3D detector, but to analyze how sensor characteristics affect perception, connect detections over time, convert motion into interpretable risk, combine complementary sensor information, and evaluate runtime efficiency for deployment.
 
 ---
 
-# 2. Problem Definition
+## 2. Project Evolution
 
-LiDAR point cloud-based perception presents several practical challenges:
-
-* raw point clouds contain surrounding 360-degree sensor information
-* road surface points dominate the scene and interfere with clustering
-* sparse point clouds can fragment object candidates
-* structure fragments can be detected as false object candidates
-* unstable clustering results can cause tracking ID switches across frames
-* short-lived clusters can incorrectly affect risk decisions
-
-Therefore, this project focused on:
-
-> building a LiDAR perception pipeline that extracts object candidates from point cloud data, tracks them across consecutive frames, and estimates proximity risk based on distance change.
-
----
-
-# 3. Dataset
-
-## nuScenes Mini Dataset
-
-The project was implemented using the nuScenes mini dataset.
-
-The dataset contains autonomous driving sensor data, including:
-
-* LiDAR point cloud data
-* camera data
-* metadata
-* ego pose information
-* sensor calibration information
-* scene/sample annotations
-
-For this project, the main input modality was the top LiDAR sensor:
-
-```text
-samples/LIDAR_TOP/
-```
-
-Dataset structure:
-
-```text
-nuscenes/
-├── maps
-├── samples
-│   └── LIDAR_TOP
-├── sweeps
-│   └── LIDAR_TOP
-└── v1.0-mini
-```
-
-The dataset was linked to the project directory using a symbolic link:
-
-```text
-data/nuscenes -> /media/rani/새 볼륨/nuscenes
-```
-
-This allowed the project code to use a consistent local path while storing the large dataset outside the Git repository.
-
----
-
-# 4. Pipeline
+### Stage 1 — Classical LiDAR Baseline
 
 ```text
 LiDAR Point Cloud
 → Front ROI Filtering
 → Ground Removal
 → DBSCAN Clustering
-→ Cluster Filtering
 → 3D Bounding Box Generation
-→ Frame-to-Frame Tracking
-→ Track Confirmation
-→ Smoothed Distance Calculation
-→ Risk Assessment
-→ CSV / JSON Output
+→ Hungarian Matching
+→ Confirmed Track Filtering
+→ Smoothed Distance
+→ Proximity Risk Assessment
 ```
 
-![Pipeline](assets/pipeline_overview.png)
+This stage established an interpretable baseline without semantic 3D detection.
 
----
-
-# 5. LiDAR Point Cloud Loading
-
-## 5.1 Input Data
-
-The nuScenes LiDAR point cloud was loaded from the `LIDAR_TOP` sensor data.
-
-Each LiDAR point contains spatial and intensity information:
+### Stage 2 — Deep Learning-based 3D Perception
 
 ```text
-x, y, z, intensity
+LiDAR Point Cloud
+→ PointPillars 3D Detection
+→ Sensor Characteristic Analysis
+→ Hungarian + Kalman Tracking
+→ Relative Motion Estimation
+→ TTC + DCPA Risk Assessment
+→ Camera–LiDAR Association
+→ Multisensor Coverage Evaluation
+→ ONNX Runtime Optimization
 ```
 
-For this project, the 3D spatial coordinates were mainly used:
+The second stage replaces spatial DBSCAN candidates with semantic 3D detections and expands the system toward multimodal perception and deployment-oriented evaluation.
+
+---
+
+## 3. Dataset
+
+### nuScenes Mini
+
+The project uses the **nuScenes v1.0-mini** dataset.
+
+Used modalities and metadata:
+
+- `LIDAR_TOP`
+- `CAM_FRONT`
+- ego pose
+- calibrated sensor information
+- sample annotations
+- LiDAR sweeps
+
+Dataset layout:
 
 ```text
-x: forward / backward direction
-y: left / right direction
-z: height
+nuscenes/
+├── maps/
+├── samples/
+│   ├── LIDAR_TOP/
+│   └── CAM_FRONT/
+├── sweeps/
+│   └── LIDAR_TOP/
+└── v1.0-mini/
 ```
 
----
-
-## 5.2 Initial Point Cloud Visualization
-
-The raw LiDAR point cloud was visualized using Open3D.
-
-This step confirmed that:
-
-* the nuScenes mini dataset was correctly linked
-* LiDAR point cloud files were successfully loaded
-* 3D point cloud visualization was working
-
----
-
-# 6. Front ROI Filtering
-
-## 6.1 Motivation
-
-Raw LiDAR point clouds contain surrounding 360-degree information.
-
-However, for forward proximity risk assessment, the main target area is the front region of the ego vehicle.
-
-Therefore, front ROI filtering was applied to remove unnecessary points and focus on the risk-relevant area.
-
----
-
-## 6.2 ROI Range
-
-The following ROI range was applied:
+The dataset is stored outside the Git repository and linked symbolically:
 
 ```text
-x: 2.0m ~ 30.0m
-y: -10.0m ~ 10.0m
-z: -3.0m ~ 3.0m
+data/nuscenes -> /media/rani/새 볼륨/nuscenes
 ```
 
-The minimum x value was set to 2.0m to remove ego-vehicle-adjacent noise and sensor-near artifacts.
+PointPillars evaluation split:
+
+| Split | Samples |
+|---|---:|
+| Train | 323 |
+| Validation | 81 |
+| Total | 404 |
 
 ---
 
-## 6.3 ROI Filtering Result
+## 4. End-to-End Architecture
 
-Example point count:
+```text
+nuScenes LiDAR + Camera
+        │
+        ├── LiDAR → PointPillars 3D Detection
+        │              │
+        │              ├── Distance / Density / Sweep Analysis
+        │              │
+        │              └── Hungarian + Kalman Tracking
+        │                              │
+        │                              └── TTC + DCPA Risk
+        │
+        └── CAM_FRONT → YOLO 2D Detection
+                               │
+                     Camera–LiDAR Association
+                               │
+                     Multisensor Coverage Eval
+                               │
+                     Structured Risk / Fusion Output
+                               │
+                     ONNX Runtime Benchmark
+```
+
+---
+
+## 5. Classical LiDAR Baseline
+
+### 5.1 Front ROI Filtering
+
+For forward proximity-risk analysis, the following ROI was used:
+
+```text
+x:  2.0 m ~ 30.0 m
+y: -10.0 m ~ 10.0 m
+z: -3.0 m ~  3.0 m
+```
+
+Example:
 
 | Stage | Point Count |
-| --- | ---: |
+|---|---:|
 | Original Point Cloud | 34,688 |
-| Front ROI Points | 9,924 |
-| Removed Points | 24,764 |
+| Front ROI | 9,924 |
+| Removed | 24,764 |
 
-This step reduced the point cloud to the region most relevant for forward risk assessment.
+### 5.2 Ground Removal
 
----
-
-# 7. Ground Removal
-
-## 7.1 Motivation
-
-The majority of LiDAR points in driving scenes often belong to the road surface.
-
-If ground points remain, DBSCAN clustering can incorrectly group road scan lines or ground structures as object candidates.
-
-Therefore, ground removal was applied before clustering.
-
----
-
-## 7.2 Height-based Ground Removal
-
-A simple z-threshold based ground removal method was used.
-
-```text
-non-ground point: z > threshold
-ground point: z <= threshold
-```
-
-This method is simple and fast, making it suitable as a baseline ground removal approach.
-
----
-
-## 7.3 Threshold Comparison
-
-Different z-threshold values were tested.
-
-| z-threshold | Ground Points | Non-ground Points | Observation |
-| ---: | ---: | ---: | --- |
-| -1.0 | 7,684 | 2,240 | More aggressive ground removal |
-| -1.2 | 7,663 | 2,261 | Balanced baseline |
-| -1.4 | 7,593 | 2,331 | More non-ground points preserved |
-
-### Key Observation
-
-A lower threshold preserved more non-ground points, but also increased the possibility of retaining near-ground noise.
-
-A higher threshold removed more points, but could remove low-height object structures.
-
-Therefore, this project used:
+A height-based ground removal baseline was applied before clustering.
 
 ```text
 z_threshold = -1.4
 ```
 
-to preserve object candidate points during clustering and tracking.
+### 5.3 DBSCAN Object Candidate Extraction
 
-![Ground Removal Result](assets/ground_removal_result.png)
-
----
-
-# 8. DBSCAN-based Object Candidate Clustering
-
-## 8.1 Motivation
-
-After ROI filtering and ground removal, non-ground points were clustered to generate object candidates.
-
-DBSCAN was selected because:
-
-* it does not require a predefined number of clusters
-* it can separate dense point groups
-* it can classify sparse points as noise
-
----
-
-## 8.2 DBSCAN Setup
-
-Baseline DBSCAN parameters:
+Baseline DBSCAN configuration:
 
 ```text
 eps = 0.6
 min_samples = 6
 ```
 
-The clustering was applied to the 3D point coordinates:
-
-```text
-x, y, z
-```
-
----
-
-## 8.3 Cluster Filtering
-
-Initial DBSCAN results included:
-
-* small sparse noise clusters
-* thin structural fragments
-* ego-vehicle-adjacent clusters
-* overly large structure clusters
-
-To improve object candidate quality, cluster filtering was applied using the following conditions:
-
-```text
-distance >= 3.0m
-num_points >= 30
-width_x >= 0.2m
-width_y >= 0.2m
-height_z >= 0.3m
-width_x <= 5.0m
-width_y <= 5.0m
-height_z <= 3.5m
-```
-
----
-
-## 8.4 Clustering Result
-
-Example frame result:
+Example frame:
 
 | Metric | Result |
-| --- | ---: |
-| Original Points | 34,720 |
+|---|---:|
 | ROI Points | 8,662 |
 | Non-ground Points | 2,421 |
 | DBSCAN Clusters | 13 |
 | Noise Points | 225 |
 
-Cluster information included:
+DBSCAN generated **spatial object candidates**, not semantic classes such as car or pedestrian.
 
-* cluster ID
-* number of points
-* center position
-* 3D bounding box size
-* distance from LiDAR
+### 5.4 Stable Tracking Baseline
 
-![DBSCAN Bounding Box Result](assets/dbscan_bbox_result.png)
+The original nearest-neighbor tracker was improved using:
 
----
+- Hungarian Matching
+- confirmed-track logic
+- exponential moving average distance smoothing
 
-# 9. Frame Selection for Tracking
-
-## 9.1 Motivation
-
-A single LiDAR frame may not contain enough meaningful object candidates.
-
-Therefore, all 404 samples in the nuScenes mini dataset were processed to find frames suitable for clustering and tracking visualization.
-
----
-
-## 9.2 Frame Search Result
-
-The following sample was selected as a representative frame:
+Confirmed-track rule:
 
 ```text
-sample_idx = 48
+tentative: hits < 3
+confirmed: hits >= 3
 ```
 
-Example result:
+Result over the selected 11-frame sequence:
 
 | Metric | Result |
-| --- | ---: |
-| ROI Points | 8,662 |
-| Non-ground Points | 2,421 |
-| Cluster Count | 13 |
-
-The selected frame provided enough object candidates for visualization and tracking analysis.
-
----
-
-# 10. Baseline Tracking
-
-## 10.1 Motivation
-
-After extracting object candidates frame-by-frame, the next step was to maintain object identity across frames.
-
-The baseline tracker used cluster center distance for frame-to-frame matching.
-
----
-
-## 10.2 Nearest-neighbor Tracking
-
-The baseline tracking method matched each current cluster to the nearest previous cluster center.
-
-For each tracked object, the following values were calculated:
-
-* track ID
-* center position
-* distance from LiDAR
-* speed per frame
-* approach delta
-* approaching status
-* risk level
-
----
-
-## 10.3 Baseline Tracking Result
-
-Baseline tracking summary:
-
-| Metric | Result |
-| --- | ---: |
-| Total Frames | 11 |
-| Total Detections | 61 |
-| Total Tracks | 38 |
-| Stable Tracks | 5 |
-| Approaching Tracks | 4 |
-| Stable Approaching Tracks | 2 |
-| Minimum Distance | 5.623 m |
-
-Risk count by object:
-
-| Risk Level | Count |
-| --- | ---: |
-| SAFE | 28 |
-| CAUTION | 21 |
-| WARNING | 12 |
-| DANGER | 0 |
-
-### Key Observation
-
-The baseline tracker successfully identified approaching object candidates.
-
-However, several issues were observed:
-
-* track IDs were frequently newly created
-* short-lived clusters were included in risk assessment
-* temporary cluster noise sometimes affected frame-level risk decisions
-
-This motivated the stable tracking improvement.
-
----
-
-# 11. Stable Tracking Improvement
-
-## 11.1 Motivation
-
-The baseline tracking approach was sensitive to unstable DBSCAN clusters.
-
-To improve tracking stability, three strategies were introduced:
-
-* Hungarian matching
-* confirmed track condition
-* smoothed distance-based risk assessment
-
----
-
-## 11.2 Hungarian Matching
-
-Instead of greedy nearest-neighbor matching, a distance cost matrix was constructed between:
-
-```text
-previous track centers
-current detection centers
-```
-
-Hungarian matching was then applied to find a globally optimal assignment.
-
-This reduced order-dependent matching errors.
-
----
-
-## 11.3 Confirmed Track Condition
-
-Temporary clusters should not immediately affect risk assessment.
-
-Therefore, each track was classified as:
-
-```text
-tentative track: hits < 3
-confirmed track: hits >= 3
-```
-
-Only confirmed tracks were actively used for risk decision.
-
-This reduced the influence of short-lived noise clusters.
-
----
-
-## 11.4 Smoothed Distance
-
-Raw LiDAR distance can fluctuate between frames.
-
-To reduce unstable risk decisions, smoothed distance was calculated using an exponential moving average:
-
-```text
-smoothed_distance = alpha * current_distance + (1 - alpha) * previous_smoothed_distance
-```
-
-Applied value:
-
-```text
-alpha = 0.6
-```
-
-The risk decision was based on smoothed distance instead of raw distance.
-
----
-
-# 12. Stable Tracking Result
-
-## 12.1 Summary
-
-Stable tracking summary:
-
-| Metric | Result |
-| --- | ---: |
-| Total Frames | 11 |
+|---|---:|
 | Total Detections | 61 |
 | Total Tracks | 35 |
 | Confirmed Tracks | 9 |
 | Stable Approaching Tracks | 4 |
 | Confirmed Detections | 13 |
-| Tentative Detections | 48 |
-| Minimum Raw Distance | 5.623 m |
-| Minimum Smoothed Distance | 5.623 m |
+| Minimum Distance | 5.623 m |
+
+This baseline showed why temporal stabilization is necessary before making risk decisions.
 
 ---
 
-## 12.2 Risk Distribution
+## 6. PointPillars 3D Detection
 
-Risk count for all objects:
+### 6.1 Model Configuration
 
-| Risk Level | Count |
-| --- | ---: |
-| SAFE | 50 |
-| CAUTION | 4 |
-| WARNING | 7 |
+The extended pipeline uses the OpenPCDet implementation of **PointPillars**.
+
+```text
+Point Cloud Range
+[-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+
+Pillar Size
+[0.2, 0.2, 8.0]
+
+Max Points per Pillar
+20
+
+Input Sweeps
+10
+```
+
+Architecture:
+
+```text
+Voxel / Pillar Generation
+→ PillarVFE
+→ PointPillarScatter
+→ BaseBEVBackbone
+→ AnchorHeadMulti
+→ 3D Detection
+```
+
+Classes:
+
+```text
+car, truck, construction_vehicle, bus, trailer,
+barrier, motorcycle, bicycle, pedestrian, traffic_cone
+```
+
+### 6.2 Pretrained Baseline Evaluation
+
+A pretrained PointPillars checkpoint trained on the full nuScenes dataset was evaluated on the nuScenes mini validation split.
+
+> **Important:** this is a pretrained baseline evaluation, not a model trained from scratch on nuScenes mini.
+
+| Metric | Result |
+|---|---:|
+| Validation Samples | 81 |
+| mAP | 0.4134 |
+| NDS | 0.4920 |
+
+---
+
+## 7. LiDAR Sensor Characteristic Analysis
+
+### 7.1 Distance-based Detection Recall
+
+Custom diagnostic condition:
+
+```text
+same class
+prediction score >= 0.30
+center distance <= 2 m
+```
+
+This is an auxiliary diagnostic, not the official nuScenes mAP metric.
+
+| Distance | GT | Matched | Recall |
+|---|---:|---:|---:|
+| 0–20 m | 1,513 | 1,151 | 0.761 |
+| 20–40 m | 1,967 | 1,180 | 0.600 |
+| 40–50 m | 461 | 123 | 0.267 |
+
+Detection recall decreased sharply with distance.
+
+### 7.2 Current-sweep Point Density
+
+Current-frame LiDAR points inside GT boxes were counted to inspect sensor sparsity.
+
+| Distance | Objects | Mean Points | Median Points | Recall |
+|---|---:|---:|---:|---:|
+| 0–20 m | 1,513 | 115.8 | 29 | 0.761 |
+| 20–40 m | 1,967 | 9.6 | 4 | 0.600 |
+| 40–50 m | 461 | 2.7 | 1 | 0.267 |
+
+Observed trend:
+
+```text
+increasing distance
+→ lower point density
+→ lower detection recall
+```
+
+Point count is not the only cause; class, occlusion, orientation, and scene structure also affect detection.
+
+### 7.3 Multi-sweep Ablation
+
+The same pretrained 10-sweep checkpoint was evaluated with reduced input sweeps.
+
+> This is an **input ablation / robustness experiment**, not sweep-specific retraining.
+
+| Input Sweeps | mAP | NDS |
+|---:|---:|---:|
+| 1 | 0.3135 | 0.3535 |
+| 5 | 0.3717 | 0.4485 |
+| 10 | **0.4134** | **0.4920** |
+
+Distance recall:
+
+| Sweeps | 0–20 m | 20–40 m | 40–50 m |
+|---:|---:|---:|---:|
+| 1 | 0.619 | 0.378 | 0.072 |
+| 5 | 0.705 | 0.541 | 0.206 |
+| 10 | **0.761** | **0.600** | **0.267** |
+
+Temporal sweep accumulation helped compensate for sparse LiDAR information, especially at longer ranges.
+
+### 7.4 Pillar Resolution Ablation
+
+The pretrained `0.20 m` checkpoint was evaluated with different pillar sizes.
+
+| Pillar Size | mAP | NDS | sec / example |
+|---:|---:|---:|---:|
+| 0.16 m | 0.3480 | 0.4363 | 0.1209 |
+| 0.20 m | **0.4134** | **0.4920** | 0.0692 |
+| 0.32 m | 0.1401 | 0.2538 | 0.0883 |
+
+> The checkpoint was trained with `0.20 m` pillars. This is therefore a **resolution-mismatch ablation**, not a fair comparison of independently trained pillar resolutions.
+
+---
+
+## 8. 3D Object Tracking
+
+PointPillars detections were connected across time using:
+
+```text
+PointPillars Detection
+→ Class-aware Hungarian Matching
+→ Kalman Filter
+→ Confirmed Track
+```
+
+Tracking is performed in the global coordinate frame to account for ego motion.
+
+Kalman state:
+
+```text
+[x, y, vx, vy]
+```
+
+Main parameters:
+
+```text
+score threshold = 0.30
+matching distance = 4 m
+minimum hits = 3
+maximum age = 2
+```
+
+Evaluation result:
+
+| Metric | Result |
+|---|---:|
+| Confirmed Track Rows | 2,010 |
+| GT Observations | 4,267 |
+| Matched Observations | 1,947 |
+| GT Match Rate | 0.456 |
+| Matched GT Instances | 157 |
+| Stable Instances | 96 |
+| Stable Instance Rate | 0.611 |
+| ID Switches | 115 |
+| ID Switch Rate | 0.064 |
+
+The GT match rate is influenced by detector recall, score threshold, and confirmed-track filtering, so it is not a pure tracker metric.
+
+---
+
+## 9. Dynamic Risk Assessment
+
+### 9.1 TTC
+
+For each confirmed track, ego motion and object motion were used to estimate radial closing speed and Time-To-Collision.
+
+Initial heuristic thresholds:
+
+```text
+DANGER  : TTC < 2 s
+WARNING : TTC < 4 s
+CAUTION : TTC < 8 s
+SAFE    : otherwise
+```
+
+Result:
+
+| Risk | Count |
+|---|---:|
+| SAFE | 1,368 |
+| CAUTION | 351 |
+| WARNING | 264 |
+| DANGER | 27 |
+
+TTC alone can overestimate risk when paths cross without an actual near-collision.
+
+### 9.2 TTC + DCPA
+
+DCPA was added to estimate minimum spatial separation at the closest point of approach.
+
+```text
+DANGER  : TTC < 2 s AND DCPA < 2 m
+WARNING : TTC < 4 s AND DCPA < 4 m
+CAUTION : TTC < 8 s AND DCPA < 6 m
+SAFE    : otherwise
+```
+
+Result:
+
+| Risk | Count |
+|---|---:|
+| SAFE | 1,781 |
+| CAUTION | 207 |
+| WARNING | 22 |
 | DANGER | 0 |
 
-Risk count for confirmed objects:
-
-| Risk Level | Count |
-| --- | ---: |
-| SAFE | 2 |
-| CAUTION | 4 |
-| WARNING | 7 |
-| DANGER | 0 |
-
-Frame-level max risk:
-
-| Risk Level | Frame Count |
-| --- | ---: |
-| SAFE | 6 |
-| CAUTION | 1 |
-| WARNING | 4 |
-| DANGER | 0 |
-
----
-
-## 12.3 Stable Approaching Tracks
-
-Top stable approaching tracks:
-
-| Track ID | Frames | Confirmed Frames | Smoothed Distance Change | Delta | Max Risk |
-| ---: | ---: | ---: | --- | ---: | --- |
-| 2 | 4 | 2 | 8.931m → 7.257m | 1.673m | WARNING |
-| 32 | 3 | 1 | 9.423m → 8.365m | 1.058m | WARNING |
-| 31 | 4 | 2 | 10.122m → 9.156m | 0.966m | WARNING |
-| 3 | 3 | 1 | 7.377m → 6.428m | 0.949m | WARNING |
-
-### Key Observation
-
-After applying stable tracking, short-lived detections were handled more conservatively.
-
-Most tentative detections were classified as `SAFE`, while confirmed approaching tracks were used for meaningful `WARNING` decisions.
-
----
-
-# 13. Risk Assessment
-
-## 13.1 Risk Logic
-
-Risk level was determined using:
-
-* smoothed distance
-* approaching status
-* confirmed track status
-
-Risk rules:
+Representative case:
 
 ```text
-If not confirmed:
-    distance < 5m  → CAUTION
-    otherwise      → SAFE
-
-If confirmed:
-    distance < 5m                  → DANGER
-    distance < 10m and approaching → WARNING
-    distance < 10m                 → CAUTION
-    distance < 15m and approaching → CAUTION
-    otherwise                      → SAFE
+Track 196
+Class = car
+Distance = 7.09 m
+Closing Speed = 12.88 m/s
+TTC = 0.55 s
+DCPA = 3.44 m
+Risk = WARNING
 ```
+
+DCPA suppresses TTC-only over-warning when an object is rapidly approaching but is not predicted to pass inside the closest-danger separation threshold.
+
+> TTC / DCPA thresholds are experimental heuristics and are not certified automotive safety thresholds.
 
 ---
 
-## 13.2 Output Example
+## 10. Camera–LiDAR Fusion
 
-Example JSON output:
+### 10.1 Geometric Alignment
 
-```json
-{
-  "frame_idx": 11,
-  "track_id": 31,
-  "distance_m": 8.917,
-  "smoothed_distance_m": 9.156,
-  "is_confirmed": true,
-  "track_hits": 4,
-  "is_approaching": true,
-  "risk_level": "WARNING"
-}
-```
-
-The final output was saved as:
+nuScenes calibration information was used to transform LiDAR 3D detections into the CAM_FRONT image plane.
 
 ```text
-outputs/logs/tracking_results_stable.csv
-outputs/logs/tracking_results_stable.json
-outputs/logs/stable_tracking_summary.json
+LiDAR
+→ ego vehicle
+→ global
+→ camera ego
+→ camera sensor
+→ image projection
 ```
 
----
+This verified spatial alignment between PointPillars detections and camera objects.
 
-# 14. Visualization Analysis
+### 10.2 Camera Detection
 
-## 14.1 Point Cloud Visualization
+CAM_FRONT images were processed using YOLO11n.
 
-The raw LiDAR point cloud was visualized using Open3D to confirm sensor data loading.
-
----
-
-## 14.2 ROI and Ground Removal
-
-ROI filtering reduced the original point cloud to the front region.
-
-Ground removal separated road surface points from non-ground object candidate points.
-
-![Ground Removal Result](assets/ground_removal_result.png)
-
----
-
-## 14.3 DBSCAN Clustering and 3D Bounding Boxes
-
-DBSCAN clustering generated object candidate clusters from non-ground points.
-
-Each cluster was represented using:
-
-* center point
-* 3D bounding box
-* point count
-* size
-* distance from LiDAR
-
-![DBSCAN Bounding Box Result](assets/dbscan_bbox_result.png)
-
----
-
-## 14.4 Distance Change of Confirmed Tracks
-
-![Stable Tracking Distance Change](assets/stable_tracking_distance_change_clean.png)
-
-Track 31 and Track 32 were confirmed after being matched across multiple frames.
-
-Both tracks showed decreasing smoothed distance, indicating approaching object candidates.
-
----
-
-## 14.5 BEV Tracking Visualization
-
-![BEV Tracking](assets/bev_tracking_frames_09_11.png)
-
-Bird’s-eye view visualization was used to show:
-
-* object candidate positions
-* track IDs
-* lateral position
-* forward distance
-* risk-relevant motion
-
----
-
-# 15. Key Insights
-
-1. Raw LiDAR point clouds require ROI filtering before object-level analysis.
-2. Ground removal significantly affects DBSCAN clustering quality.
-3. DBSCAN can generate object candidates without labels, but is sensitive to point density and structure fragments.
-4. Baseline nearest-neighbor tracking can produce many short-lived track IDs.
-5. Hungarian matching reduces order-dependent matching instability.
-6. Confirmed track logic prevents temporary clusters from immediately affecting risk decisions.
-7. Smoothed distance helps reduce unstable risk decisions caused by frame-level distance fluctuation.
-8. Stable tracking improved the interpretability of proximity risk assessment.
-
----
-
-# 16. Limitations
-
-This project does not perform deep learning-based 3D object detection.
-
-Therefore, the DBSCAN clusters are:
+Mapped classes:
 
 ```text
-spatial object candidates
+car, truck, bus, motorcycle, bicycle, pedestrian
 ```
 
-not semantic objects such as:
+For `scene-0103`:
+
+| Metric | Result |
+|---|---:|
+| Frames | 40 |
+| Camera Detections | 672 |
+
+### 10.3 Late Fusion
+
+Camera and LiDAR detections were associated in the image plane using:
 
 ```text
-car, pedestrian, cyclist
+same class
++ 2D IoU
++ Hungarian Matching
 ```
 
-Current limitations include:
+For matched objects, camera and LiDAR confidence scores were combined while preserving LiDAR 3D position and distance.
 
-* DBSCAN cluster fragmentation
-* structure fragments being detected as object candidates
-* ID switches caused by cluster split or merge
-* lack of semantic class prediction
-* lack of label-based 3D detection evaluation
-* no real-time sensor input from physical LiDAR hardware
+```text
+fusion_score
+= 0.60 × camera_score
++ 0.40 × lidar_score
+```
+
+The fusion score is an object-level combined score and is not guaranteed to be higher than either individual sensor score.
+
+### 10.4 Multisensor Coverage Evaluation
+
+A custom GT-coverage diagnostic was performed over `scene-0103`.
+
+Evaluation conditions:
+
+- CAM_FRONT-visible GT only
+- class-consistent one-to-one matching
+- Camera: 2D IoU >= 0.50
+- LiDAR: center distance <= 2 m
+- LiDAR score >= 0.30
+
+| Method | Matched GT | Coverage Recall |
+|---|---:|---:|
+| Camera-only | 316 | 0.432 |
+| LiDAR-only | 195 | 0.266 |
+| **Fusion Union** | **377** | **0.515** |
+| Both Sensors | 134 | 0.183 |
+
+Total CAM_FRONT-visible GT objects:
+
+```text
+732
+```
+
+Fusion gain:
+
+```text
+vs Camera-only : +0.083
+vs LiDAR-only  : +0.249
+```
+
+This indicates that the two sensors have complementary detection behavior and can compensate for different failure cases.
+
+> Coverage Recall is a custom diagnostic metric, not an official nuScenes multimodal benchmark metric.
 
 ---
 
-# 17. Tech Stack
+## 11. Edge / Deployment Optimization
 
-## Programming
+### 11.1 ONNX Export
 
-* Python
-* NumPy
-* Pandas
-* JSON
+The PointPillars `BaseBEVBackbone` was exported to ONNX.
 
-## Point Cloud Processing
+```text
+Input : spatial_features    (1, 64, 512, 512)
+Output: spatial_features_2d (1, 384, 128, 128)
+```
 
-* nuScenes-devkit
-* Open3D
-* scikit-learn DBSCAN
-* SciPy Hungarian Matching
+Validation:
 
-## Visualization
+| Metric | Result |
+|---|---:|
+| ONNX Checker | PASS |
+| 99th Percentile Abs. Diff | 0.00143294 |
+| 99.9th Percentile Abs. Diff | 0.00395483 |
+| Relative L2 Error | 0.00173204 |
 
-* Matplotlib
-* Open3D
+This verifies feature-level numerical consistency within a small error range.
 
-## Dataset
+> Only the BEV backbone was exported. This is not a full end-to-end PointPillars ONNX deployment.
 
-* nuScenes mini
+### 11.2 Runtime Benchmark
+
+Benchmark condition:
+
+```text
+Input shape: (1, 64, 512, 512)
+Warmup: 20
+Runs: 100
+```
+
+| Runtime | Device | Mean Latency | p50 | p95 | FPS |
+|---|---|---:|---:|---:|---:|
+| PyTorch | GPU | **12.333 ms** | 12.410 ms | 12.727 ms | **81.08** |
+| PyTorch | CPU | 352.772 ms | 264.290 ms | 1230.809 ms | 2.83 |
+| ONNX Runtime | CPU | **162.872 ms** | 162.843 ms | 163.803 ms | **6.14** |
+
+CPU optimization result:
+
+```text
+PyTorch CPU → ONNX Runtime CPU
+352.772 ms → 162.872 ms
+2.17× speedup
+```
+
+> GPU FPS refers only to the `BaseBEVBackbone` benchmark and must not be interpreted as end-to-end PointPillars FPS.
 
 ---
 
-# 18. Project Structure
+## 12. Key Results
+
+| Area | Result |
+|---|---|
+| PointPillars Baseline | mAP 0.4134 / NDS 0.4920 |
+| Distance Analysis | Recall 0.761 → 0.600 → 0.267 with increasing distance |
+| Sweep Ablation | mAP 0.3135 → 0.3717 → 0.4134 for 1 / 5 / 10 sweeps |
+| Tracking | ID Switch Rate 0.064 |
+| Dynamic Risk | TTC + DCPA reduced TTC-only over-warning |
+| Camera Coverage | 0.432 |
+| LiDAR Coverage | 0.266 |
+| Fusion Coverage | **0.515** |
+| Fusion Gain | +0.083 vs Camera / +0.249 vs LiDAR |
+| ONNX CPU Optimization | **2.17× speedup** |
+| Backbone GPU Runtime | 12.333 ms / 81.08 FPS |
+
+---
+
+## 13. Project Structure
 
 ```text
 lidar-risk-tracking/
-├── configs/
 ├── data/
-│   └── nuscenes -> /media/rani/새 볼륨/nuscenes
+│   └── nuscenes -> external dataset
+│
+├── experiments/
+│
 ├── outputs/
 │   ├── images/
-│   │   ├── stable_tracking_distance_change_clean.png
-│   │   ├── stable_tracking_distance_change.png
-│   │   └── bev_tracking_frames_09_11.png
-│   └── logs/
-│       ├── tracking_results.csv
-│       ├── tracking_results.json
-│       ├── tracking_results_stable.csv
-│       ├── tracking_results_stable.json
-│       ├── stable_track_summary.csv
-│       ├── stable_frame_summary.csv
-│       └── stable_tracking_summary.json
+│   ├── logs/
+│   └── pointpillars/
+│
 ├── src/
-│   ├── 01_load_lidar.py
-│   ├── 02_roi_filter.py
-│   ├── 03_ground_removal.py
-│   ├── 04_dbscan_clustering.py
-│   ├── 05_find_good_frames.py
-│   ├── 06_tracking.py
-│   ├── 07_plot_tracking_distance.py
-│   ├── 08_tracking_summary.py
-│   ├── 09_plot_bev_tracking.py
-│   ├── 10_tracking_stable.py
-│   ├── 11_stable_tracking_summary.py
-│   ├── 12_plot_stable_tracking_distance.py
-│   └── 13_plot_stable_tracking_distance_clean.py
+│   ├── baseline/
+│   │   ├── 01_load_lidar.py
+│   │   ├── 02_roi_filter.py
+│   │   ├── 03_ground_removal.py
+│   │   ├── 04_dbscan_clustering.py
+│   │   ├── 05_find_good_frames.py
+│   │   ├── 06_baseline_tracking.py
+│   │   ├── 07_baseline_tracking_summary.py
+│   │   ├── 08_stable_tracking.py
+│   │   ├── 09_stable_tracking_summary.py
+│   │   ├── 10_plot_stable_distance_clean.py
+│   │   └── 11_plot_stable_bev_tracking.py
+│   │
+│   └── detection_3d/
+│       ├── analysis/
+│       │   ├── analyze_distance_recall.py
+│       │   ├── analyze_point_density.py
+│       │   ├── compare_sweep_distance_recall.py
+│       │   └── evaluate_tracking_stability.py
+│       ├── inference/
+│       │   ├── track_pointpillars.py
+│       │   └── visualize_pointpillars_bev.py
+│       ├── risk/
+│       │   ├── compute_ttc_risk.py
+│       │   └── compute_ttc_dcpa_risk.py
+│       ├── fusion/
+│       │   ├── run_camera_detection.py
+│       │   ├── run_camera_detection_scene.py
+│       │   ├── visualize_camera_lidar_fusion.py
+│       │   ├── fuse_camera_lidar.py
+│       │   ├── evaluate_multisensor_coverage.py
+│       │   └── visualize_camera_lidar_fusion_result.py
+│       ├── edge/
+│       │   ├── inspect_pointpillars_for_onnx.py
+│       │   ├── export_pointpillars_backbone_onnx.py
+│       │   └── benchmark_backbone_runtime.py
+│       └── visualization/
+│           ├── visualize_tracking_risk_bev.py
+│           └── visualize_tracking_risk_bev_portfolio.py
+│
+├── third_party/
+│   └── OpenPCDet/
 ├── README.md
 └── requirements.txt
 ```
 
+---
 
-# 20. Future Work
+## 14. Main Outputs
 
-Potential future improvements include:
-
-* Kalman Filter-based motion prediction
-* Hungarian matching with velocity-aware cost
-* PointPillars or CenterPoint-based 3D object detection
-* semantic class-aware risk assessment
-* label-based 3D bounding box evaluation
-* camera-LiDAR fusion
-* real-time LiDAR sensor inference
+```text
+outputs/pointpillars/
+├── pointpillars_bev_sample0.png
+├── distance_recall_baseline.csv
+├── point_density_objects.csv
+├── point_density_summary.csv
+├── pointpillars_tracks.csv
+├── pointpillars_ttc_risk.csv
+├── pointpillars_ttc_dcpa_risk.csv
+├── portfolio/
+│   └── tracking_risk_bev_portfolio.png
+├── camera_lidar/
+│   ├── camera_detections_scene0103_all.csv
+│   ├── camera_lidar_fusion_portfolio.png
+│   └── multisensor_coverage_scene0103_corrected.csv
+└── edge/
+    └── pointpillars_backbone.onnx
+```
 
 ---
 
-# 21. Conclusion
+## 15. Tech Stack
 
-This project implemented a LiDAR point cloud-based object candidate tracking and proximity risk assessment pipeline.
+### Programming
 
-The pipeline includes:
+- Python
+- NumPy
+- Pandas
 
-* LiDAR point cloud loading
-* ROI filtering
-* ground removal
-* DBSCAN-based object candidate clustering
-* 3D bounding box generation
-* frame-to-frame tracking
-* confirmed track stabilization
-* smoothed distance-based risk assessment
-* structured CSV / JSON output
+### Deep Learning / 3D Detection
 
-The project demonstrated that:
+- PyTorch
+- OpenPCDet
+- PointPillars
+- spconv
 
-> even without training a 3D detection model, LiDAR point cloud data can be processed into object candidate tracks and proximity risk decisions through a structured perception pipeline.
+### Point Cloud / Sensor Processing
 
-It also showed that:
+- nuScenes-devkit
+- Open3D
+- scikit-learn
+- SciPy
 
-> tracking stability can be improved by combining Hungarian matching, confirmed track filtering, and smoothed distance-based risk assessment.
+### Tracking / Risk
+
+- Hungarian Matching
+- Kalman Filter
+- TTC
+- DCPA
+
+### Camera / Multisensor
+
+- Ultralytics YOLO11
+- nuScenes calibration
+- Camera–LiDAR geometric projection
+- IoU-based late fusion
+
+### Deployment
+
+- ONNX
+- ONNX Runtime
+
+### Visualization
+
+- Matplotlib
+- Open3D
+
+---
+
+## 16. Limitations
+
+1. The PointPillars checkpoint was pretrained on the full nuScenes dataset. Reported mAP / NDS values are evaluation results, not self-trained model performance.
+2. Sweep and pillar-size experiments reuse the same pretrained checkpoint and are robustness / mismatch ablations rather than independently trained fair comparisons.
+3. Tracking metrics are affected by detector recall and confirmed-track filtering.
+4. TTC / DCPA thresholds are heuristic experimental settings and are not automotive safety-certified thresholds.
+5. Camera–LiDAR Coverage Recall is a custom diagnostic metric, not an official nuScenes multimodal metric.
+6. The current late-fusion method uses geometric association and confidence combination rather than an end-to-end learned multimodal model.
+7. ONNX optimization was evaluated for the PointPillars BEV backbone, not the full end-to-end detector.
+8. The project uses recorded nuScenes data rather than live physical LiDAR input.
+
+---
+
+## 17. Key Insights
+
+1. LiDAR detection performance decreases strongly with range as point density becomes sparse.
+2. Temporal sweep accumulation can mitigate sparse long-range observations.
+3. Detection quality cannot be explained by point count alone; class, occlusion, and geometry also matter.
+4. Replacing DBSCAN candidates with semantic PointPillars detections enables class-aware tracking and risk analysis.
+5. Hungarian Matching and Kalman filtering provide a practical temporal layer over frame-level 3D detections.
+6. TTC alone can over-warn; DCPA adds predicted path-separation information.
+7. Camera and LiDAR show complementary detection behavior, raising union coverage to 0.515.
+8. ONNX Runtime reduced BEV-backbone CPU latency from 352.772 ms to 162.872 ms, a 2.17× speedup.
+
+---
+
+## 18. Conclusion
+
+This project evolved from a classical LiDAR clustering baseline into a complete perception and risk-analysis pipeline:
+
+```text
+LiDAR Sensor Analysis
+→ PointPillars 3D Detection
+→ Hungarian + Kalman Tracking
+→ TTC + DCPA Risk Assessment
+→ Camera–LiDAR Fusion
+→ GT-based Coverage Evaluation
+→ ONNX Runtime Optimization
+```
+
+The most important outcome is not simply the use of PointPillars.
+
+> **LiDAR sensor characteristics were analyzed quantitatively, 3D detections were connected over time, relative motion was converted into interpretable risk, camera information was used to compensate for LiDAR detection failures, and deployment efficiency was evaluated through ONNX Runtime optimization.**
+
+This provides a practical foundation for real-time multimodal perception, edge deployment, and sensor-based safety monitoring.
