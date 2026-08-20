@@ -473,6 +473,7 @@ PyTorch CPU → ONNX Runtime CPU
 
 > GPU FPS refers only to the `BaseBEVBackbone` benchmark and must not be interpreted as end-to-end PointPillars FPS.
 
+<<<<<<< HEAD
 ---
 
 ## 10. Key Results
@@ -520,6 +521,113 @@ lidar-risk-tracking/
 ---
 
 ## 12. Main Outputs
+=======
+## 14.2 ROI and Ground Removal
+
+ROI filtering reduced the original point cloud to the front region, and ground removal separated road surface points from non-ground object candidate points.
+
+## 14.3 DBSCAN Clustering and 3D Bounding Boxes
+
+DBSCAN clustering generated object candidate clusters from non-ground points.  
+Each cluster was represented using its center point, 3D bounding box, point count, size, and distance from LiDAR.
+
+## 14.4 Distance Change of Confirmed Tracks
+
+![Stable Tracking Distance Change](assets/stable_tracking_distance_change_clean.png)
+
+Track 31 and Track 32 were confirmed after being matched across multiple frames.  
+Both tracks showed decreasing smoothed distance, indicating approaching object candidates.
+
+## 14.5 BEV Tracking Visualization
+
+![BEV Tracking](assets/bev_tracking_stable_tracks_31_32.png)
+
+Track 31 and Track 32 were visualized in bird’s-eye view to show the spatial trajectory of stable approaching object candidates.  
+`T` indicates a tentative track, while `C` indicates a confirmed track after being matched across multiple frames.
+
+# 15. Key Insights
+
+1. Raw LiDAR point clouds require ROI filtering before object-level analysis.
+2. Ground removal significantly affects DBSCAN clustering quality.
+3. DBSCAN can generate object candidates without labels, but is sensitive to point density and structure fragments.
+4. Baseline nearest-neighbor tracking can produce many short-lived track IDs.
+5. Hungarian matching reduces order-dependent matching instability.
+6. Confirmed track logic prevents temporary clusters from immediately affecting risk decisions.
+7. Smoothed distance helps reduce unstable risk decisions caused by frame-level distance fluctuation.
+8. Stable tracking improved the interpretability of proximity risk assessment.
+
+---
+
+# 16. Limitations
+
+This project does not perform deep learning-based 3D object detection.
+
+Therefore, the DBSCAN clusters are:
+
+```text
+spatial object candidates
+```
+
+not semantic objects such as:
+
+```text
+car, pedestrian, cyclist
+```
+
+Current limitations include:
+
+* DBSCAN cluster fragmentation
+* structure fragments being detected as object candidates
+* ID switches caused by cluster split or merge
+* lack of semantic class prediction
+* lack of label-based 3D detection evaluation
+* no real-time sensor input from physical LiDAR hardware
+
+---
+
+# 17. Tech Stack
+
+## Programming
+
+* Python
+* NumPy
+* Pandas
+* JSON
+
+## Point Cloud Processing
+
+* nuScenes-devkit
+* Open3D
+* scikit-learn DBSCAN
+* SciPy Hungarian Matching
+
+## Visualization
+
+* Matplotlib
+* Open3D
+
+## Dataset
+
+* nuScenes mini
+
+---
+
+# 19. Future Work
+
+Potential future improvements include:
+
+* Kalman Filter-based motion prediction
+* Hungarian matching with velocity-aware cost
+* PointPillars or CenterPoint-based 3D object detection
+* semantic class-aware risk assessment
+* label-based 3D bounding box evaluation
+* camera-LiDAR fusion
+* real-time LiDAR sensor inference
+
+---
+
+# 20. Conclusion
+>>>>>>> origin/main
 
 ```text
 outputs/pointpillars/
@@ -554,6 +662,7 @@ outputs/pointpillars/
 
 ### Deep Learning / 3D Detection
 
+<<<<<<< HEAD
 - PyTorch
 - OpenPCDet
 - PointPillars
@@ -632,3 +741,6 @@ The most important outcome is not simply the use of PointPillars.
 > **LiDAR sensor characteristics were analyzed quantitatively, 3D detections were connected over time, relative motion was converted into interpretable risk, camera information was used to compensate for LiDAR detection failures, and deployment efficiency was evaluated through ONNX Runtime optimization.**
 
 This provides a practical foundation for real-time multimodal perception, edge deployment, and sensor-based safety monitoring.
+=======
+> tracking stability can be improved by combining Hungarian matching, confirmed track filtering, and smoothed distance-based risk assessment.
+>>>>>>> origin/main
