@@ -2,60 +2,26 @@
 
 ## 1. 프로젝트 개요
 
-본 프로젝트는 ROI 필터링, Ground Removal, DBSCAN Clustering, 프레임 간 Tracking으로 구성된 기존 LiDAR Point Cloud 파이프라인에서 시작했습니다.
+본 프로젝트는 **nuScenes mini 데이터셋을 활용해 LiDAR 기반 3D 객체 인지와 위험 판단 파이프라인을 구축한 프로젝트**입니다.
 
-이후 다음 기능을 추가하여 **3D 인지 및 위험도 평가 파이프라인**으로 확장했습니다.
+PointPillars 기반 3D 객체 검출에서 시작해 LiDAR 센서 특성 분석, 객체 추적, TTC·DCPA 기반 동적 위험 판단, Camera–LiDAR Late Fusion, ONNX Runtime 기반 추론 최적화까지 확장했습니다.
+
+주요 구성:
 
 - PointPillars 기반 3D 객체 검출
-- LiDAR 센서 특성 분석
+- 거리별 검출 성능 및 Point Density 분석
+- Multi-sweep 및 Pillar Resolution 분석
 - Hungarian Matching + Kalman Filter 기반 객체 추적
-- TTC / DCPA 기반 동적 위험도 평가
+- TTC / DCPA 기반 동적 위험 판단
 - Camera 2D Detection 및 Camera–LiDAR Late Fusion
+- GT 기반 Multisensor Coverage 평가
 - ONNX Runtime 기반 배포 최적화
 
 단순히 3D Detection 모델을 적용하는 것에 그치지 않고, **LiDAR 센서 특성이 검출 성능에 어떤 영향을 주는지 분석하고, 검출 결과를 시간축으로 연결해 객체를 추적한 뒤 위험도를 계산하며, Camera 정보를 결합해 단일 센서의 한계를 보완하고, 마지막으로 배포 환경에서의 실행 성능까지 검증하는 것**을 목표로 했습니다.
 
 ---
 
-# 2. 프로젝트 발전 과정
-
-프로젝트는 크게 두 단계로 진행했습니다.
-
-### Stage 1 — Classical LiDAR Baseline
-
-```text
-LiDAR Point Cloud
-→ Front ROI Filtering
-→ Ground Removal
-→ DBSCAN Clustering
-→ 3D Bounding Box 생성
-→ Hungarian Matching
-→ Confirmed Track Filtering
-→ Smoothed Distance
-→ 근접 위험도 평가
-```
-
-이 단계에서는 Semantic 3D Detection 모델을 사용하지 않고, LiDAR Point Cloud 자체에서 공간적 객체 후보를 생성하고 추적하는 Baseline을 구축했습니다.
-
-### Stage 2 — Deep Learning 기반 3D Perception
-
-```text
-LiDAR Point Cloud
-→ PointPillars 3D Detection
-→ Sensor Characteristic Analysis
-→ Hungarian + Kalman Tracking
-→ Relative Motion Estimation
-→ TTC + DCPA Risk Assessment
-→ Camera–LiDAR Association
-→ Multisensor Coverage Evaluation
-→ ONNX Runtime Optimization
-```
-
-두 번째 단계에서는 DBSCAN 기반 공간적 객체 후보를 Semantic 3D Detection 결과로 대체하고, Tracking·Risk Assessment·Multisensor Fusion·배포 성능 평가까지 확장했습니다.
-
----
-
-# 3. 데이터셋
+# 2. 데이터셋
 
 ## nuScenes Mini
 
@@ -99,7 +65,7 @@ PointPillars 평가에 사용한 nuScenes mini split:
 
 ---
 
-# 4. 전체 시스템 구조
+# 3. 전체 시스템 구조
 
 ```text
                          ┌──────────────────────────┐
@@ -139,99 +105,7 @@ PointPillars 평가에 사용한 nuScenes mini split:
 
 ---
 
-# 5. Classical LiDAR Baseline
-
-## 5.1 Front ROI Filtering
-
-원본 LiDAR Point Cloud에는 차량 주변 360도 영역의 정보가 포함되어 있습니다.
-
-전방 근접 위험도 분석에 필요한 영역에 집중하기 위해 다음 ROI를 적용했습니다.
-
-```text
-x:  2.0 m ~ 30.0 m
-y: -10.0 m ~ 10.0 m
-z: -3.0 m ~  3.0 m
-```
-
-예시:
-
-| Stage | Point Count |
-|---|---:|
-| Original Point Cloud | 34,688 |
-| Front ROI | 9,924 |
-| Removed | 24,764 |
-
----
-
-## 5.2 Ground Removal
-
-Clustering 이전에 도로 표면 Point의 영향을 줄이기 위해 높이 기반 Ground Removal을 적용했습니다.
-
-최종 Baseline Threshold:
-
-```text
-z_threshold = -1.4
-```
-
-낮은 높이의 객체 후보 Point를 최대한 보존하면서 도로 표면의 영향을 줄이기 위한 기준으로 설정했습니다.
-
----
-
-## 5.3 DBSCAN 객체 후보 추출
-
-Baseline DBSCAN 설정:
-
-```text
-eps = 0.6
-min_samples = 6
-```
-
-이후 Distance, Point Count, 3D Size 조건을 이용해 Cluster Filtering을 추가했습니다.
-
-대표 프레임 결과:
-
-| Metric | Result |
-|---|---:|
-| ROI Points | 8,662 |
-| Non-ground Points | 2,421 |
-| DBSCAN Clusters | 13 |
-| Noise Points | 225 |
-
-DBSCAN은 Label 없이 공간적 객체 후보를 생성할 수 있다는 장점이 있지만, 결과는 `car`, `pedestrian`과 같은 Semantic Object가 아닌 **공간적 객체 후보**라는 한계가 있습니다.
-
----
-
-## 5.4 Stable Tracking Baseline
-
-초기 Nearest-neighbor Tracker를 다음 방법으로 개선했습니다.
-
-- Hungarian Matching
-- Confirmed Track Logic
-- EMA 기반 거리 평활화
-
-Confirmed Track 조건:
-
-```text
-tentative: hits < 3
-confirmed: hits >= 3
-```
-
-선택한 11프레임 구간의 Stable Tracking 결과:
-
-| Metric | Result |
-|---|---:|
-| Total Detections | 61 |
-| Total Tracks | 35 |
-| Confirmed Tracks | 9 |
-| Stable Approaching Tracks | 4 |
-| Confirmed Detections | 13 |
-| Minimum Distance | 5.623 m |
-
-이 Baseline을 통해 일시적으로 생성되는 Cluster가 바로 위험 판단에 반영되지 않도록 **시간축 안정화가 필요함**을 확인했습니다.
-
----
-
-# 6. PointPillars 3D Detection
+# 4. PointPillars 3D Detection
 
 ## 6.1 모델 구성
 
@@ -297,9 +171,9 @@ Full nuScenes 데이터셋으로 학습된 PointPillars Pretrained Checkpoint를
 
 ---
 
-# 7. LiDAR 센서 특성 분석
+# 5. LiDAR 센서 특성 분석
 
-## 7.1 거리별 Detection Recall
+## 5.1 거리별 Detection Recall
 
 다음 기준으로 Custom Diagnostic Recall을 계산했습니다.
 
@@ -323,7 +197,7 @@ Center Distance <= 2 m
 
 ---
 
-## 7.2 Point Density 분석
+## 5.2 Point Density 분석
 
 현재 Keyframe의 LiDAR Point가 각 GT Box 내부에 몇 개 존재하는지 계산해 Sensor Sparsity를 분석했습니다.
 
@@ -345,7 +219,7 @@ Center Distance <= 2 m
 
 ---
 
-## 7.3 Multi-sweep Ablation
+## 5.3 Multi-sweep Ablation
 
 동일한 10-sweep Pretrained Checkpoint에 입력 Sweep 수만 줄여 성능 변화를 비교했습니다.
 
@@ -369,7 +243,7 @@ Temporal Sweep를 누적할수록 Sparse한 LiDAR 정보를 보완할 수 있었
 
 ---
 
-## 7.4 Pillar Resolution Ablation
+## 5.4 Pillar Resolution Ablation
 
 `0.20 m` Pillar 설정으로 학습된 동일 Pretrained Checkpoint에 서로 다른 Pillar Size를 적용했습니다.
 
@@ -385,7 +259,7 @@ Temporal Sweep를 누적할수록 Sparse한 LiDAR 정보를 보완할 수 있었
 
 ---
 
-# 8. 3D Object Tracking
+# 6. 3D Object Tracking
 
 PointPillars Detection 결과를 시간축으로 연결하기 위해 다음 Tracking Pipeline을 구성했습니다.
 
@@ -431,9 +305,9 @@ GT Match Rate는 Detector Recall, Score Threshold, Confirmed Track 조건의 영
 
 ---
 
-# 9. 동적 위험도 평가
+# 7. 동적 위험도 평가
 
-## 9.1 TTC
+## 7.1 TTC
 
 Confirmed Track의 상대 위치와 상대 속도를 이용해 Radial Closing Speed와 TTC(Time-To-Collision)를 계산했습니다.
 
@@ -463,7 +337,7 @@ SAFE    : otherwise
 
 ---
 
-## 9.2 TTC + DCPA
+## 7.2 TTC + DCPA
 
 TTC-only Risk의 과잉 경고를 줄이기 위해 DCPA(Distance at Closest Point of Approach)를 추가했습니다.
 
@@ -504,9 +378,9 @@ TTC만 보면 매우 짧은 충돌 예상 시간이지만, DCPA가 3.44 m이므�
 
 ---
 
-# 10. Camera–LiDAR Fusion
+# 8. Camera–LiDAR Fusion
 
-## 10.1 Geometric Alignment
+## 8.1 Geometric Alignment
 
 nuScenes Calibration 정보를 이용해 PointPillars 3D Detection 결과를 CAM_FRONT Image Plane으로 투영했습니다.
 
@@ -523,7 +397,7 @@ LiDAR
 
 ---
 
-## 10.2 Camera Detection
+## 8.2 Camera Detection
 
 CAM_FRONT 영상에는 YOLO11n을 적용했습니다.
 
@@ -547,7 +421,7 @@ pedestrian
 
 ---
 
-## 10.3 Late Fusion
+## 8.3 Late Fusion
 
 Camera와 LiDAR Detection을 Image Plane에서 다음 조건으로 Association했습니다.
 
@@ -571,7 +445,7 @@ Fusion Score는 두 센서의 Confidence를 통합하기 위한 객체 단위 �
 
 ---
 
-## 10.4 Multisensor Coverage 평가
+## 8.4 Multisensor Coverage 평가
 
 Camera와 LiDAR가 서로의 검출 실패를 얼마나 보완하는지 확인하기 위해 `scene-0103` 전체에서 GT 기반 Custom Coverage Diagnostic을 수행했습니다.
 
@@ -609,9 +483,9 @@ Camera와 LiDAR가 서로 다른 객체를 놓치는 특성을 보였고, 두 �
 
 ---
 
-# 11. Edge / 배포 최적화
+# 9. Edge / 배포 최적화
 
-## 11.1 ONNX Export
+## 9.1 ONNX Export
 
 PointPillars의 `BaseBEVBackbone`을 ONNX로 변환했습니다.
 
@@ -644,7 +518,7 @@ ONNX Validation:
 
 ---
 
-## 11.2 Runtime Benchmark
+## 9.2 Runtime Benchmark
 
 Benchmark 조건:
 
@@ -674,7 +548,7 @@ PyTorch CPU → ONNX Runtime CPU
 
 ---
 
-# 12. 주요 결과 요약
+# 10. 주요 결과 요약
 
 | Area | Result |
 |---|---|
@@ -692,116 +566,58 @@ PyTorch CPU → ONNX Runtime CPU
 
 ---
 
-# 13. 주요 시각화 및 결과 파일
-
-대표 결과:
+# 11. 주요 시각화 및 결과 파일
 
 ```text
-assets/
-outputs/
-├── pointpillars/
-│   ├── pointpillars_bev_sample0.png
-│   ├── distance_recall_baseline.csv
-│   ├── point_density_summary.csv
-│   ├── pointpillars_tracks.csv
-│   ├── pointpillars_ttc_risk.csv
-│   ├── pointpillars_ttc_dcpa_risk.csv
-│   │
-│   ├── portfolio/
-│   │   └── tracking_risk_bev_portfolio.png
-│   │
-│   ├── camera_lidar/
-│   │   ├── camera_detections_scene0103_all.csv
-│   │   ├── camera_lidar_fusion_portfolio.png
-│   │   └── multisensor_coverage_scene0103_corrected.csv
-│   │
-│   └── edge/
-│       └── pointpillars_backbone.onnx
-```
-
-대표 위험도 시각화 사례:
-
-```text
-Track 196
-Car
-Distance: 7.09 m
-TTC: 0.55 s
-DCPA: 3.44 m
-Risk: WARNING
+outputs/pointpillars/
+├── camera_lidar/
+│   ├── camera_lidar_fusion_portfolio.png
+│   └── multisensor_coverage_scene0103_corrected.csv
+├── edge/
+│   └── pointpillars_backbone.onnx
+├── portfolio/
+│   └── tracking_risk_bev_portfolio.png
+├── tracking_risk_bev/
+│   ├── scene-0103_frame_36.png
+│   ├── scene-0103_frame_37.png
+│   └── scene-0103_frame_38.png
+├── distance_recall_baseline.csv
+├── point_density_summary.csv
+├── pointpillars_bev_sample0.png
+├── pointpillars_ttc_dcpa_risk.csv
+├── sweep_distance_recall_comparison.csv
+└── tracking_stability_summary.csv
 ```
 
 ---
 
-# 14. 프로젝트 구조
+# 12. 프로젝트 구조
 
 ```text
 lidar-risk-tracking/
+├── assets/
+├── configs/
 ├── data/
 │   └── nuscenes -> external dataset
-│
-├── experiments/
-│
 ├── outputs/
-│   ├── images/
-│   ├── logs/
 │   └── pointpillars/
-│
 ├── src/
-│   ├── baseline/
-│   │   ├── 01_load_lidar.py
-│   │   ├── 02_roi_filter.py
-│   │   ├── 03_ground_removal.py
-│   │   ├── 04_dbscan_clustering.py
-│   │   ├── 05_find_good_frames.py
-│   │   ├── 06_baseline_tracking.py
-│   │   ├── 07_baseline_tracking_summary.py
-│   │   ├── 08_stable_tracking.py
-│   │   ├── 09_stable_tracking_summary.py
-│   │   ├── 10_plot_stable_distance_clean.py
-│   │   └── 11_plot_stable_bev_tracking.py
-│   │
-│   └── detection_3d/
-│       ├── analysis/
-│       │   ├── analyze_distance_recall.py
-│       │   ├── analyze_point_density.py
-│       │   ├── compare_sweep_distance_recall.py
-│       │   └── evaluate_tracking_stability.py
-│       │
-│       ├── inference/
-│       │   ├── track_pointpillars.py
-│       │   └── visualize_pointpillars_bev.py
-│       │
-│       ├── risk/
-│       │   ├── compute_ttc_risk.py
-│       │   └── compute_ttc_dcpa_risk.py
-│       │
-│       ├── fusion/
-│       │   ├── run_camera_detection.py
-│       │   ├── run_camera_detection_scene.py
-│       │   ├── visualize_camera_lidar_fusion.py
-│       │   ├── fuse_camera_lidar.py
-│       │   ├── evaluate_multisensor_coverage.py
-│       │   └── visualize_camera_lidar_fusion_result.py
-│       │
-│       ├── edge/
-│       │   ├── inspect_pointpillars_for_onnx.py
-│       │   ├── export_pointpillars_backbone_onnx.py
-│       │   └── benchmark_backbone_runtime.py
-│       │
-│       └── visualization/
-│           ├── visualize_tracking_risk_bev.py
-│           └── visualize_tracking_risk_bev_portfolio.py
-│
-├── third_party/
-│   └── OpenPCDet/
-│
+│   ├── analysis/
+│   ├── edge/
+│   ├── fusion/
+│   ├── inference/
+│   └── risk/
+├── .gitignore
 ├── README.md
+├── README_ko.md
 └── requirements.txt
 ```
 
+`third_party/OpenPCDet/`는 로컬 실행을 위해 유지하되 Git 추적에서는 제외합니다. 재현 시에는 OpenPCDet를 별도로 설치하거나 clone해야 합니다.
+
 ---
 
-# 15. 기술 스택
+# 13. 기술 스택
 
 ## Programming
 
@@ -819,7 +635,6 @@ lidar-risk-tracking/
 ## Point Cloud / Sensor Processing
 
 - nuScenes-devkit
-- Open3D
 - scikit-learn
 - SciPy
 
@@ -845,11 +660,10 @@ lidar-risk-tracking/
 ## Visualization
 
 - Matplotlib
-- Open3D
 
 ---
 
-# 16. 한계점
+# 14. 한계점
 
 현재 프로젝트에는 다음과 같은 한계가 있습니다.
 
@@ -864,12 +678,11 @@ lidar-risk-tracking/
 
 ---
 
-# 17. 핵심 인사이트
+# 15. 핵심 인사이트
 
 1. LiDAR는 거리가 증가할수록 객체에 포함되는 Point가 Sparse해지고 Detection 성능도 크게 감소했습니다.
 2. 여러 Sweep의 Point Cloud를 누적하면 Sparse한 원거리 정보를 보완할 수 있었습니다.
 3. Point Count만으로 Detection 성능을 모두 설명할 수 없으며 Class, Occlusion, Object Geometry 역시 영향을 줍니다.
-4. DBSCAN 기반 공간적 객체 후보를 PointPillars Semantic Detection으로 대체하면서 Class-aware Tracking과 Risk Assessment가 가능해졌습니다.
 5. Hungarian Matching과 Kalman Filter를 결합해 프레임 단위 Detection 결과를 시간축 객체 Track으로 연결했습니다.
 6. TTC만 사용하면 과잉 경고가 발생할 수 있으며, DCPA를 함께 사용하면 실제 이동 경로의 최소 이격 거리를 반영할 수 있습니다.
 7. Camera와 LiDAR는 서로 다른 Detection 실패 특성을 보였고, Fusion Union Coverage는 Camera 0.432 / LiDAR 0.266에서 0.515까지 증가했습니다.
@@ -877,13 +690,11 @@ lidar-risk-tracking/
 
 ---
 
-# 18. 결론
-
-본 프로젝트는 Classical LiDAR Clustering Baseline에서 시작해 다음과 같은 전체 Perception Pipeline으로 확장되었습니다.
+# 16. 결론
 
 ```text
-LiDAR Sensor Analysis
-→ PointPillars 3D Detection
+PointPillars 3D Detection
+→ LiDAR Sensor Analysis
 → Hungarian + Kalman Tracking
 → TTC + DCPA Risk Assessment
 → Camera–LiDAR Fusion
