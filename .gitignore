@@ -52,4 +52,4 @@ outputs/
 tmp/
 temp/
 
-tools/
+third_party/OpenPCDet/
