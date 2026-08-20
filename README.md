@@ -503,7 +503,7 @@ lidar-risk-tracking/
 ├── data/
 │   └── nuscenes -> external dataset
 ├── outputs/
-│   └── pointpillars/
+│   └── 
 ├── src/
 │   ├── analysis/
 │   ├── edge/
@@ -630,24 +630,24 @@ Potential future improvements include:
 >>>>>>> origin/main
 
 ```text
-outputs/pointpillars/
+outputs/
 ├── camera_lidar/
 │   ├── camera_lidar_fusion_portfolio.png
 │   └── multisensor_coverage_scene0103_corrected.csv
 ├── edge/
 │   └── pointpillars_backbone.onnx
 ├── portfolio/
-│   └── tracking_risk_bev_portfolio.png
+│   ├── pointpillars_detection.png
+│   └── tracking_risk_bev.png
 ├── tracking_risk_bev/
 │   ├── scene-0103_frame_36.png
 │   ├── scene-0103_frame_37.png
 │   └── scene-0103_frame_38.png
-├── distance_recall_baseline.csv
-├── point_density_summary.csv
-├── pointpillars_bev_sample0.png
-├── pointpillars_ttc_dcpa_risk.csv
-├── sweep_distance_recall_comparison.csv
-└── tracking_stability_summary.csv
+├── analysis/
+│   ├── distance_recall.csv
+│   ├── point_density_summary.csv
+|   ├── sweep_distance_recall.csv
+│   └── tracking_stability.csv
 ```
 
 ---
