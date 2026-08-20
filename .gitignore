@@ -33,9 +33,6 @@ sweeps/
 maps/
 v1.0-mini/
 
-# Outputs
-outputs/
-
 # Logs / cache
 *.log
 .cache/
