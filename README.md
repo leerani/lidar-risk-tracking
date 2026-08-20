@@ -743,4 +743,3 @@ The most important outcome is not simply the use of PointPillars.
 This provides a practical foundation for real-time multimodal perception, edge deployment, and sensor-based safety monitoring.
 =======
 > tracking stability can be improved by combining Hungarian matching, confirmed track filtering, and smoothed distance-based risk assessment.
->>>>>>> origin/main
